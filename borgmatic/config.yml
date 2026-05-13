@@ -1,0 +1,29 @@
+# Docs: https://torsion.org/borgmatic/docs/reference/configuration/
+
+repositories: # Adapt to your storage method
+  - path: "ssh://YOUR_URL.your-storagebox.de:23/./borg-repository"
+    label: sftp
+    encryption: repokey-blake2
+
+source_directories:
+  - /to-backup
+
+exclude_patterns: # Database data should be backed up separately
+  - /to-backup/immich-database-data
+
+postgresql_databases:
+  - name: "immich"
+    hostname: immich_postgres
+    port: 5432
+    username: postgres
+
+keep_daily: 2
+keep_weekly: 4
+keep_monthly: 4
+
+commands:
+  - after: action
+    when: [create]
+    states: [finish]
+    run:
+      - date +%s > /borgmatic-status/last-success

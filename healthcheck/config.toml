@@ -1,0 +1,13 @@
+[thresholds]
+max_load_avg        = 1.0         # adjust to the number of CPU (max = 1 x CPU count)
+min_disk_kb         = 100000000   # triggers if free disk space < 100GB
+disk_device         = "/dev/sda1" # adjust to your disk
+borgmatic_max_age_h = 26
+
+[checks]
+http = [
+    "https://immich.domain.example/api/server/features",
+    "https://torrent.domain.example",
+    "https://cloud.domain.example/login"
+    # Add what you need
+]

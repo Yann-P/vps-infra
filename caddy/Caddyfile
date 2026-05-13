@@ -1,0 +1,31 @@
+immich.domain.example {
+	reverse_proxy 127.0.0.1:2283
+}
+
+downloads.domain.example {
+	file_server {
+		root /downloads
+		browse
+	}
+
+	basic_auth {
+		admin [HASH HERE]
+	}
+}
+
+cloud.domain.example {
+    reverse_proxy 127.0.0.1:8586 {
+        flush_interval -1
+    }
+
+    redir /.well-known/carddav   /remote.php/dav                    301
+    redir /.well-known/caldav    /remote.php/dav                    301
+}
+
+torrent.domain.example {
+	reverse_proxy 127.0.0.1:8080
+}
+
+jellyfin.domain.example {
+	reverse_proxy 127.0.0.1:8096
+}

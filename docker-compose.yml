@@ -1,0 +1,213 @@
+name: infra
+
+services:
+  caddy:
+    build: ./caddy
+    restart: unless-stopped
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./data/downloads:/downloads:ro
+    network_mode: host
+
+  borgmatic:
+    build: ./borgmatic
+    container_name: borgmatic
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      BORG_RSH: "ssh -p 23 -o StrictHostKeyChecking=no -i /root/.ssh/box_key"
+      PGPASSWORD: "${IMMICH_APP_DB_PASSWORD:?missing}" # This syntax throws an error if the variable is not defined
+      BORG_PASSPHRASE: "${BORGMATIC_KEY:?missing}"
+    volumes:
+      - ./borgmatic/config.yml:/etc/borgmatic.d/config.yaml:ro
+      - ./borgmatic/ssh:/root/.ssh
+      - ./data:/to-backup:ro
+      - borgmatic_cache:/root/.cache/borg
+      - borgmatic_config:/root/.config/borg
+      - borgmatic_status:/borgmatic-status # used by healthcheck to see when last backup was
+
+  healthcheck:
+    build: ./healthcheck
+    restart: unless-stopped
+    privileged: true # we control the code and expose nothing to the internet with this service. necessary to check load average etc.
+    environment:
+      MAIL_FROM: "source-email@example.com"
+      ALERT_EMAIL: "your-email@example.com"
+    volumes:
+      - ./healthcheck/healthcheck.py:/healthcheck.py:ro
+      - ./healthcheck/config.toml:/config.toml:ro
+      - borgmatic_status:/borgmatic-status:ro
+    extra_hosts: # necessary for emails
+      - "host.docker.internal:host-gateway"
+
+  ###########################
+  # TORRENT UI
+  ###########################
+
+  torrent-wireguard: # (optional VPN)
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: qbit_wireguard
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - ./wireguard-config/:/config/wg_confs
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    networks:
+      - net_torrent
+
+  torrent:
+    image: linuxserver/qbittorrent:latest
+    network_mode: service:torrent-wireguard # connect through the VPN. If you do not use a VPN, drop this line
+    container_name: qbit
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      UMASK_SET: "022"
+      WEBUI_PORT: "8080"
+      DOCKER_MODS: ghcr.io/vuetorrent/vuetorrent-lsio-mod:latest # optional theme
+    volumes:
+      - ./data/torrent-config:/config
+      - ./data/downloads:/downloads
+
+  ###########################
+  # JELLYFIN
+  ###########################
+
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - ./data/jellyfin-config:/config
+      - ./data/downloads:/data/vz
+    ports:
+      - "127.0.0.1:8096:8096"
+    restart: unless-stopped
+
+  ###########################
+  # NEXTCLOUD
+  ###########################
+
+  nextcloud:
+    image: lscr.io/linuxserver/nextcloud:33.0.2
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - NEXTCLOUD_TRUSTED_DOMAINS="cloud.domain.example"
+    volumes:
+      - ./data/nextcloud-config:/config
+      - ./data/nextcloud-data:/data
+    ports:
+      - "127.0.0.1:8586:80"
+    restart: unless-stopped
+
+  ###########################
+  # IMMICH
+  ###########################
+
+  immich-app-server:
+    container_name: immich_server
+    image: ghcr.io/immich-app/immich-server:release
+    volumes:
+      - ./data/immich-library:/usr/src/app/upload
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - immich.env
+    environment:
+      # https://immich.app/docs/install/environment-variables
+      IMMICH_VERSION: release
+      DB_HOSTNAME: immich-app-database
+      REDIS_HOSTNAME: immich-app-redis
+      DB_USERNAME: postgres
+      DB_DATABASE_NAME: immich
+      DB_PASSWORD: ${IMMICH_APP_DB_PASSWORD:?missing}
+    ports:
+      - "127.0.0.1:2283:2283"
+    depends_on:
+      - immich-app-redis
+      - immich-app-database
+    restart: always
+    healthcheck:
+      disable: false
+
+  immich-app-machine-learning:
+    container_name: immich_machine_learning
+    image: ghcr.io/immich-app/immich-machine-learning:release
+    volumes:
+      - model-cache:/cache
+    environment:
+      IMMICH_VERSION: release
+      DB_HOSTNAME: immich-app-database
+      REDIS_HOSTNAME: immich-app-redis
+      DB_USERNAME: postgres
+      DB_DATABASE_NAME: immich
+      DB_PASSWORD: ${IMMICH_APP_DB_PASSWORD:?missing}
+    restart: always
+    healthcheck:
+      disable: false
+
+  immich-app-redis:
+    container_name: immich_redis
+    image: docker.io/redis:6.2-alpine
+    healthcheck:
+      test: redis-cli ping || exit 1
+    restart: always
+
+  immich-app-database:
+    container_name: immich_postgres
+    image: docker.io/tensorchord/pgvecto-rs:pg14-v0.2.0
+    environment:
+      POSTGRES_PASSWORD: ${IMMICH_APP_DB_PASSWORD:?missing}
+      POSTGRES_USER: postgres
+      POSTGRES_DB: immich
+      POSTGRES_INITDB_ARGS: --data-checksums
+    volumes:
+      - ./data/immich-postgres:/var/lib/postgresql/data
+    command:
+      [
+        "postgres",
+        "-c",
+        "shared_preload_libraries=vectors.so",
+        "-c",
+        "search_path=$$user, public, vectors",
+        "-c",
+        "logging_collector=on",
+        "-c",
+        "max_wal_size=2GB",
+        "-c",
+        "shared_buffers=512MB",
+        "-c",
+        "wal_compression=on",
+      ]
+    restart: always
+
+  ###########################
+
+volumes:
+  caddy_data:
+  caddy_config:
+  model-cache:
+  borgmatic_cache:
+  borgmatic_config:
+  borgmatic_status:
+
+networks:
+  net_torrent:
