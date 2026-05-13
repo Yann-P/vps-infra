@@ -34,11 +34,11 @@
 
 ### Adding services
 
-1 - add to `docker-compose.yml` and expose only to localhost (`127.0.0.1:port:port`).
-2 - everything in `./data` is backed up by default. If you want to exclude it from backups, change `borgmatic/config.yml`. If it's a database, use the appropriate borgmatic sections.
-3 - set up a subdomain with an entry `A {public IP address of your server}`
-4 - add to `caddy/Caddyfile`
-5 - start the service `docker compose up -d` and rebuild Caddy `docker compose up -d --build caddy`
+1. add to `docker-compose.yml` and expose only to localhost (`127.0.0.1:port:port`).
+2. everything in `./data` is backed up by default. If you want to exclude it from backups, change `borgmatic/config.yml`. If it's a database, use the appropriate borgmatic sections.
+3. set up a subdomain with an entry `A {public IP address of your server}`
+4. add to `caddy/Caddyfile`
+5. start the service `docker compose up -d` and rebuild Caddy `docker compose up -d --build caddy`
 
 ---
 
@@ -46,11 +46,9 @@
 
 ### Security
 
-First things first. 
-
 - Use a LTS, "package-conservative" distro like debian to minimize exposure to new CVEs. Everything runs in docker anyway.
-- Check that **no** user on your server has password authentication on. 
-- Set up [automatic security upgrades](https://wiki.debian.org/PeriodicUpdates) for your distro.
+- ❗Check that **no** user on your server has password authentication on. 
+- ❗Set up [automatic security upgrades](https://wiki.debian.org/PeriodicUpdates) for your distro.
 - Use unique passwords to authenticate to the various services you self-host.
 - Regularily update your images, `docker compose pull [service]` but beware of breaking changes.
 
@@ -80,7 +78,7 @@ Do not add your github/gitlab ssh key to your server! Use a key that has only ac
 
 ### Healthcheck
 
-Update `docker-compose.yml`'s `EMAIL_{FROM,TO}`` envs. Update `healthcheck/config.toml`.
+Update `docker-compose.yml`'s `EMAIL_{FROM,TO}` envs. Update `healthcheck/config.toml`.
 
 Adapt the python script to your needs!
 
